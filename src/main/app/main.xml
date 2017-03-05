@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:context="http://www.springframework.org/schema/context" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:mulexml="http://www.mulesoft.org/schema/mule/xml" xmlns:tls="http://www.mulesoft.org/schema/mule/tls"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:quartz="http://www.mulesoft.org/schema/mule/quartz" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/quartz http://www.mulesoft.org/schema/mule/quartz/current/mule-quartz.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/xml http://www.mulesoft.org/schema/mule/xml/current/mule-xml.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+<db:generic-config name="Mediahaven_DB" url="jdbc:postgresql://${db.mediahaven.host}:${db.mediahaven.port}/${db.mediahaven.database}?password=${db.mediahaven.password}&amp;user=${db.mediahaven.username}" driverClassName="org.postgresql.Driver" doc:name="Generic Database Configuration"/>
+    <http:request-config name="REST-API" host="${mediahaven_api.host_intern}" port="443" basePath="/" doc:name="HTTP Request Configuration" responseTimeout="30000" protocol="HTTPS">
+        <tls:context>
+            <tls:key-store alias="${keystore.alias}" keyPassword="${keystore.password}" password="${keystore.password}"/>
+        </tls:context>
+    </http:request-config>
+    <file:connector name="toTurtle" autoDelete="true" outputAppend="true" streaming="true" validateConnections="true" doc:name="File"/>
+    <quartz:connector name="Quartz" validateConnections="true" doc:name="Quartz"/>
+    <context:property-placeholder location="${mule.env}.properties"/>
+    <file:connector name="toCSV" autoDelete="true" outputAppend="true" streaming="true" validateConnections="true" doc:name="File"/>
+    <http:request-config name="SpotlightNL" host="localhost" port="2223" basePath="/nl" responseTimeout="30000" doc:name="HTTP Request Configuration"/>
+    <http:request-config name="SpotlightFR" host="localhost" port="2224" basePath="/" responseTimeout="30000" doc:name="HTTP Request Configuration"/>
+    <http:request-config name="SpotlightEN" host="localhost" port="2225" basePath="/en" responseTimeout="30000" doc:name="HTTP Request Configuration"/>
+    <http:request-config name="SpotlightDE" host="localhost" port="2226" basePath="/de" responseTimeout="30000" doc:name="HTTP Request Configuration"/>
+    
+    <flow name="main" initialState="started" processingStrategy="synchronous">
+        <quartz:inbound-endpoint jobName="start" repeatInterval="0" repeatCount="0" startDelay="0" connector-ref="Quartz" responseTimeout="10000" doc:name="Quartz">
+            <quartz:event-generator-job/>
+        </quartz:inbound-endpoint>
+        <flow-ref name="WritePrefixes" doc:name="WritePrefixes"/>
+        <flow-ref name="WriteCsvHeader" doc:name="WriteCsvHeader"/>
+        <flow-ref name="setMediahavenAuthHeader" doc:name="setMediahavenAuthHeader"/>
+        <db:select config-ref="Mediahaven_DB" doc:name="Get count newspapers and newspaperpages">
+            <db:dynamic-query><![CDATA[select count(1) count
+             from sips
+			WHERE type IN ('newspaper', 'newspaperpage')]]></db:dynamic-query>
+        </db:select>
+        <set-variable variableName="total" value="#[payload[0].count]" doc:name="Set total"/>
+        <set-variable variableName="pageCount" value="#[82]" doc:name="Set pageCount 0"/>
+        <set-variable variableName="pageSize" value="#[1000]" doc:name="Set pageSize 1000"/>
+        <set-variable variableName="amountOfLoops" value="#[new String[payload[0].count/flowVars.pageSize]]" doc:name="Set amountOfLoops"/>
+        <logger message="Start looping - total: #[flowVars.total]" level="INFO" doc:name="Start looping "/>
+        <foreach collection="#[flowVars.amountOfLoops]" counterVariableName="counter1" doc:name="For Each">
+            <until-successful maxRetries="20" synchronous="true" doc:name="Until Successful">
+                <db:select config-ref="Mediahaven_DB" doc:name="Get fragment_ids of paginated query">
+                    <db:dynamic-query><![CDATA[select fragment_id
+FROM sips
+WHERE type IN ('newspaper', 'newspaperpage')
+ORDER BY archive_date asc
+LIMIT #[flowVars.pageSize]
+OFFSET #[flowVars.pageCount*flowVars.pageSize];]]></db:dynamic-query>
+                </db:select>
+            </until-successful>
+            <foreach doc:name="For Each">
+                <flow-ref name="processFragment" doc:name="processFragment"/>
+            </foreach>
+            <logger message="Page done: #[flowVars.pageCount*flowVars.pageSize] / #[flowVars.total]" level="INFO" doc:name="Page done"/>
+        </foreach>
+        <logger message="DONE" level="INFO" doc:name="DONE"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger message="#[payload]" level="WARN" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <sub-flow name="processFragment">
+        <logger message="Start requesting metadata" level="INFO" doc:name="Logger"/>
+        <set-variable variableName="fragment_id" value="#[payload.fragment_id]" doc:name="Set fragment_id"/>
+        <set-variable variableName="path" value="#['/mediahaven-rest-api/resources/media/' + flowVars.fragment_id]" doc:name="Set path"/>
+        <until-successful maxRetries="100" millisBetweenRetries="20000" synchronous="true" doc:name="Until Successful">
+            <http:request config-ref="REST-API" path="#[flowVars.path]" method="GET" doc:name="Get metadata from rest-api">
+                <http:request-builder>
+                    <http:header headerName="Authorization" value="#[flowVars.authHeader]"/>
+                </http:request-builder>
+            </http:request>
+        </until-successful>
+        <json:json-to-object-transformer returnClass="java.util.HashMap" doc:name="JSON to Object"/>
+        <flow-ref name="setBasicInformation" doc:name="setBasicInformation"/>
+        <flow-ref name="writeCsvRecord" doc:name="writeCsvRecord"/>
+        <flow-ref name="writeBasicTriples" doc:name="writeBasicTriples"/>
+        <flow-ref name="generateTags" doc:name="generateTags"/>
+        <flow-ref name="hydra" doc:name="hydra"/>
+        <logger message="Done with record" level="INFO" doc:name="Logger"/>
+    </sub-flow>
+    <sub-flow name="setMediahavenAuthHeader">
+        <set-variable variableName="mediahaven_api_username" value="${mediahaven_api.username}" doc:name="Set mediahaven_api_username"/>
+        <set-variable variableName="mediahaven_api_password" value="${mediahaven_api.password}" doc:name="Set mediahaven_api_password"/>
+        <set-variable variableName="auth" value="#[flowVars.mediahaven_api_username + &quot;:&quot; + flowVars.mediahaven_api_password]" doc:name="Set auth for mediahaven_api user"/>
+        <set-variable variableName="authHeader" value="#[&quot;Basic &quot; + Base64.getEncoder().encodeToString(flowVars.auth.getBytes())]" doc:name="Set authHeader"/>
+    </sub-flow>
+    <flow name="WritePrefixes">
+        <set-payload value="#[&quot;@prefix cwork: &lt;http://www.bbc.co.uk/ontologies/creativework#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix viaa: &lt;http://data.viaa.be/noid/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix rdf: &lt;http://www.w3.org/1999/02/22-rdf-syntax-ns#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix rdfs: &lt;http://www.w3.org/2000/01/rdf-schema#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix xsd: &lt;http://www.w3.org/2001/XMLSchema#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix dc: &lt;http://purl.org/dc/elements/1.1/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix dcmitype: &lt;http://purl.org/dc/dcmitype/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix foaf: &lt;http://xmlns.com/foaf/0.1/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix dbpedia: &lt;http://dbpedia.org/resource/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix dbpprop: &lt;http://dbpedia.org/property/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix hydra: &lt;http://www.w3.org/ns/hydra/core#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix void: &lt;http://rdfs.org/ns/void#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix schema: &lt;https://schema.org/&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix owl: &lt;http://www.w3.org/2002/07/owl#&gt;.&quot; + System.getProperty('line.separator') +
+&quot;@prefix abraham: &lt;http://anet.be/record/abraham/opacbnc/&gt;.&quot; + System.getProperty('line.separator')  + System.getProperty('line.separator')]" doc:name="Set Payload with prefixes"/>
+        <expression-transformer expression="#[payload = payload + System.getProperty('line.separator')]" doc:name="Append CRLF"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.ttl" connector-ref="toTurtle" responseTimeout="10000" doc:name="Write to hetarchief2ld.ttl"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="WriteCsvHeader">
+        <set-payload value="#[&quot;viaa_uri,title,type,date_created,language,abraham_id,abraham_uri,see_also_hetarchief,original_carrier_id,content_partner,sub_content_partner,rights_owner&quot; + System.getProperty('line.separator')]" doc:name="Set Payload with header"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.csv" connector-ref="toCSV" responseTimeout="10000" doc:name="Write to hetarchief2ld.csv"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="writeCsvRecord">
+        <set-payload value="#['&quot;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&quot;' +  &quot;,&quot; + '&quot;' +   flowVars.title + '&quot;' +   &quot;,&quot; + '&quot;' +   flowVars.type + '&quot;' +   &quot;,&quot; + '&quot;' +   flowVars.dateCreated + '&quot;' +   &quot;,&quot; + '&quot;' +  flowVars.language + '&quot;' +  &quot;,&quot; + '&quot;' +  flowVars.abrahamId + '&quot;' +  &quot;,&quot; + '&quot;' +  flowVars.abrahamUri + '&quot;' + &quot;,&quot; + '&quot;' +  flowVars.see_also_hetarchief + '&quot;' + &quot;,&quot; + '&quot;' +  flowVars.originalCarrierId + '&quot;' +  &quot;,&quot; + '&quot;' +  flowVars.CP + '&quot;' +  &quot;,&quot; + '&quot;' +  flowVars.Sub_CP + '&quot;' +  &quot;,&quot; + '&quot;' +  flowVars.rights_owner + '&quot;' +  System.getProperty('line.separator')]" doc:name="Set Payload with record"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.csv" connector-ref="toCSV" responseTimeout="10000" doc:name="Write to hetarchief2ld.csv"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="setBasicInformation">
+        <set-variable variableName="viaaID" value="#[payload.externalId]" doc:name="Set viaaID"/>
+        <set-variable variableName="title" value="#[payload.title]" doc:name="Set title"/>
+        <set-variable variableName="description" value="#[payload.description]" doc:name="Set description (OCR)"/>
+        <set-variable variableName="type" value="#[payload.type]" doc:name="Set type"/>
+        <set-variable variableName="dateCreated" value="#[&quot;&quot;]" doc:name="Init dateCreated"/>
+        <set-variable variableName="language" value="#[&quot;&quot;]" doc:name="Init language"/>
+        <set-variable variableName="abrahamId" value="#[&quot;&quot;]" doc:name="Init abrahamId"/>
+        <set-variable variableName="abraham_uri" value="#[&quot;&quot;]" doc:name="Init abraham_uri"/>
+        <set-variable variableName="see_also_hetarchief" value="#[&quot;&quot;]" doc:name="Init see_also_hetarchief"/>
+        <set-variable variableName="originalCarrierId" value="#[&quot;&quot;]" doc:name="Init originalCarrierId"/>
+        <set-variable variableName="CP" value="#[&quot;&quot;]" doc:name="Init CP"/>
+        <set-variable variableName="rights_owner" value="#[&quot;&quot;]" doc:name="Init rights_owner"/>
+        <set-variable variableName="Sub_CP" value="#[&quot;&quot;]" doc:name="Init Sub_CP"/>
+        <set-variable variableName="number_of_pages" value="#[1]" doc:name="Init number_of_pages"/>
+        <foreach collection="#[payload.mdProperties]" doc:name="For Each mdPropertie">
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('carrier_date')]">
+                    <set-variable variableName="dateCreated" value="#[payload.value]" doc:name="Init dateCreated"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('language')]">
+                    <set-variable variableName="language" value="#[payload.value]" doc:name="Init language"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('abraham_ID')]">
+                    <set-variable variableName="abrahamId" value="#[payload.value]" doc:name="Init abrahamId"/>
+                    <set-variable variableName="abrahamUri" value="#[&quot;http://anet.be/record/abraham/opacbnc/&quot; + flowVars.abrahamId]" doc:name="Set abrahamUri"/>
+                    <set-variable variableName="see_also_hetarchief" value="#[&quot;https://hetarchief.be/abraham/&quot; + flowVars.abrahamId]" doc:name="Set see_also_hetarchief"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('original_carrier_id')]">
+                    <set-variable variableName="originalCarrierId" value="#[payload.value]" doc:name="Init originalCarrierId"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('CP')]">
+                    <set-variable variableName="CP" value="#[payload.value]" doc:name="Init CP"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('rights_owner')]">
+                    <set-variable variableName="rights_owner" value="#[payload.value]" doc:name="Init rights_owner"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('Sub_CP')]">
+                    <set-variable variableName="Sub_CP" value="#[payload.value]" doc:name="Init Sub_CP"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+            <choice doc:name="Choice">
+                <when expression="#[payload.attribute.equals('number_of_pages')]">
+                    <set-variable variableName="number_of_pages" value="#[payload.value]" doc:name="Set number_of_pages"/>
+                </when>
+                <otherwise>
+                    <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+                </otherwise>
+            </choice>
+        </foreach>
+        <logger message="Done with basis information setup" level="INFO" doc:name="Logger"/>
+    </flow>
+    <flow name="writeBasicTriples">
+        <set-payload value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; cwork:title &quot; + '&quot;' + flowVars.title + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; cwork:dateCreated &quot; + '&quot;' + flowVars.dateCreated + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; a cwork:CreativeWork.&quot;+ System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; schema:inLanguage &quot; + '&quot;' + flowVars.language + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; owl:sameAs &quot; + '&quot;' + flowVars.abrahamUri + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; owl:sameAs &quot; + '&quot;' + flowVars.originalCarrierId + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; rdfs:seeAlso &quot; + '&quot;' + flowVars.see_also_hetarchief + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; schema:acquiredFrom &quot; + '&quot;' + flowVars.CP + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; schema:acquiredFrom &quot; + '&quot;' + flowVars.Sub_CP + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; schema:copyrightHolder &quot; + '&quot;' + flowVars.rights_owner + '&quot;.' + System.getProperty('line.separator')  ] #['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; schema:additionalType &quot; + '&quot;' + flowVars.type + '&quot;.' + System.getProperty('line.separator')  ] " doc:name="Set Payload with basic information triples"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.ttl" connector-ref="toTurtle" responseTimeout="10000" doc:name="Write to hetarchief2ld.ttl"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="generateTags">
+        <logger message="Start tags" level="INFO" doc:name="Logger"/>
+        <set-payload value="text=#[java.net.URLEncoder.encode(flowVars.description)]&amp;confidence=0.95" doc:name="Set Payload with text and confidence 95%"/>
+        <byte-array-to-string-transformer doc:name="Byte Array to String"/>
+        <choice doc:name="Which language?">
+            <when expression="#[flowVars.language == &quot;DE&quot; || flowVars.language == &quot;de&quot;]">
+                <http:request config-ref="SpotlightDE" path="/rest/annotate" method="POST" doc:name="DE">
+                    <http:request-builder>
+                        <http:header headerName="Accept" value="application/json"/>
+                        <http:header headerName="Content-Type" value="application/x-www-form-urlencoded"/>
+                    </http:request-builder>
+                </http:request>
+            </when>
+            <when expression="#[flowVars.language == &quot;EN&quot; || flowVars.language == &quot;en&quot;]">
+                <http:request config-ref="SpotlightEN" path="/rest/annotate" method="POST" doc:name="EN">
+                    <http:request-builder>
+                        <http:header headerName="Accept" value="application/json"/>
+                        <http:header headerName="Content-Type" value="application/x-www-form-urlencoded"/>
+                    </http:request-builder>
+                </http:request>
+            </when>
+            <when expression="#[flowVars.language == &quot;FR&quot; || flowVars.language == &quot;fr&quot;]">
+                <http:request config-ref="SpotlightFR" path="/fr/rest/annotate" method="POST" doc:name="FR">
+                    <http:request-builder>
+                        <http:header headerName="Accept" value="application/json"/>
+                        <http:header headerName="Content-Type" value="application/x-www-form-urlencoded"/>
+                    </http:request-builder>
+                </http:request>
+            </when>
+            <when expression="#[flowVars.language == &quot;NL&quot; || flowVars.language == &quot;nl&quot;]">
+                <http:request config-ref="SpotlightNL" path="/rest/annotate" method="POST" doc:name="NL">
+                    <http:request-builder>
+                        <http:header headerName="Accept" value="application/json"/>
+                        <http:header headerName="Content-Type" value="application/x-www-form-urlencoded"/>
+                    </http:request-builder>
+                </http:request>
+            </when>
+            <otherwise>
+                <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+            </otherwise>
+        </choice>
+        <json:json-to-object-transformer returnClass="java.util.HashMap" doc:name="JSON to Object"/>
+        <choice doc:name="Resources found?">
+            <when expression="#[payload.Resources != null]">
+                <set-variable variableName="tags" value="#[&quot; .&quot;]" doc:name="init tags"/>
+                <foreach collection="#[payload.Resources]" doc:name="For Each">
+                    <expression-transformer expression="#[flowVars.tags = &quot;, &lt;&quot; + payload['@URI'] + &quot;&gt;&quot; + flowVars.tags]" doc:name="Append tag to tags"/>
+                </foreach>
+                <set-variable variableName="tags" value="#[flowVars.tags.substring(1)]" doc:name="Remove first , from tags"/>
+                <flow-ref name="writeTaggedTriples" doc:name="writeTaggedTriples"/>
+            </when>
+            <otherwise>
+                <expression-component doc:name="Expression"><![CDATA[//Do nothing]]></expression-component>
+            </otherwise>
+        </choice>
+        <logger level="INFO" doc:name="Logger"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger message="Error requesting NER" level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="writeTaggedTriples">
+        <set-payload value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.viaaID + '&gt;' + &quot; cwork:tag &quot; + flowVars.tags + System.getProperty('line.separator')]" doc:name="Set Payload with basic information triples"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.ttl" connector-ref="toTurtle" responseTimeout="10000" doc:name="Write to hetarchief2ld.ttl"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="hydra">
+        <logger message="Start hydra" level="INFO" doc:name="Logger"/>
+        <choice doc:name="When first page, add hydra links for everyone">
+            <when expression="#[flowVars.viaaId.substring(20, 24) == &quot;0001&quot;]">
+                <set-variable variableName="links" value="#[&quot;&quot;]" doc:name="Init links (hydra)"/>
+                <set-variable variableName="firstPage" value="#[flowVars.viaaID]" doc:name="Set firstPage"/>
+                <set-variable variableName="page_base" value="#[flowVars.firstPage.substring(0,20)]" doc:name="Set page_base (first 20 characters)"/>
+                <set-variable variableName="lastPage" value="#[flowVars.page_base  + org.apache.commons.lang.StringUtils.leftPad((Integer) flowVars.number_of_pages, 4, '0')]" doc:name="Set lastPage"/>
+                <set-variable variableName="newspaper" value="#[flowVars.firstPage.substring(0,10)]" doc:name="Set newspaper"/>
+                <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.newspaper+ '&gt;' + &quot; hydra:first &quot; + &quot;&lt;http://data.viaa.be/noid/&quot; + flowVars.firstPage + &quot;&gt; .&quot; + System.getProperty('line.separator') + flowVars.links]" doc:name="Add link between parent newspaper and first page"/>
+                <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.newspaper + '&gt;' + &quot; hydra:last &quot; + &quot;&lt;http://data.viaa.be/noid/&quot; + flowVars.lastPage + &quot;&gt; .&quot; + System.getProperty('line.separator') + flowVars.links]" doc:name="Add link between parent and last page"/>
+                <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.newspaper + '&gt;' + &quot; hydra:totalItems &quot; + '&quot;' + flowVars.number_of_pages + '&quot; .' + System.getProperty('line.separator') + flowVars.links]" doc:name="Add link between parent and totalItems"/>
+                <set-variable variableName="collection" value="#[new String[flowVars.number_of_pages]]" doc:name="Set size of collection"/>
+                <foreach collection="#[flowVars.collection]" doc:name="For Each">
+                    <set-variable variableName="page_uri" value="#[flowVars.page_base + org.apache.commons.lang.StringUtils.leftPad((Integer) flowVars.counter, 4, '0')]" doc:name="Set page_uri"/>
+                    <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.page_uri + '&gt;' + &quot; hydra:memberOf &quot; + '&lt;http://data.viaa.be/noid/' + flowVars.'newspaper' + '&gt; .' + System.getProperty('line.separator') + flowVars.links]" doc:name="Add memberOf parent"/>
+                    <choice doc:name="When not first">
+                        <when expression="#[flowVars.counter != 1]">
+                            <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.page_uri + '&gt;' + &quot; hydra:first &quot; + '&lt;http://data.viaa.be/noid/' + flowVars.firstPage + '&gt; .' + System.getProperty('line.separator') + flowVars.links]" doc:name="Add link to first"/>
+                            <set-variable variableName="previous" value="#['http://data.viaa.be/noid/' + flowVars.page_base + org.apache.commons.lang.StringUtils.leftPad((Integer) flowVars.counter-1, 4, '0')]" doc:name="Set previous"/>
+                            <set-variable variableName="links" value="#[#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.page_uri + '&gt;' + &quot; hydra:previous &quot; + '&lt;' + flowVars.previous + '&gt; .' + System.getProperty('line.separator') + flowVars.links]]" doc:name="Add link to previous"/>
+                        </when>
+                        <otherwise>
+                            <expression-component doc:name="Expression"><![CDATA[// do nothing]]></expression-component>
+                        </otherwise>
+                    </choice>
+                    <choice doc:name="When not last">
+                        <when expression="#[flowVars.counter != flowVars.number_of_pages]">
+                            <set-variable variableName="links" value="#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.page_uri + '&gt;' + &quot; hydra:last &quot; + '&lt;' + flowVars.lastPage + '&gt; .' + System.getProperty('line.separator') + flowVars.links]" doc:name="Add link to last"/>
+                            <set-variable variableName="next" value="#['http://data.viaa.be/noid/' + flowVars.page_base + org.apache.commons.lang.StringUtils.leftPad((Integer) flowVars.counter+1, 4, '0')]" doc:name="Set next"/>
+                            <set-variable variableName="links" value="#[#['&lt;' + &quot;http://data.viaa.be/noid/&quot; + flowVars.page_uri + '&gt;' + &quot; hydra:next &quot; + '&lt;' + flowVars.next + '&gt; .' + System.getProperty('line.separator') + flowVars.links]]" doc:name="Add link to next"/>
+                        </when>
+                        <otherwise>
+                            <expression-component doc:name="Expression"><![CDATA[// do nothing]]></expression-component>
+                        </otherwise>
+                    </choice>
+                </foreach>
+                <flow-ref name="writeHydraTriples" doc:name="writeHydraTriples"/>
+            </when>
+            <otherwise>
+                <expression-component doc:name="Expression"><![CDATA[// Do nothing]]></expression-component>
+            </otherwise>
+        </choice>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+    <flow name="writeHydraTriples">
+        <set-payload value="#[flowVars.links]" doc:name="Set Payload with basic information triples"/>
+        <file:outbound-endpoint path="/Users/brechtvdv" outputPattern="hetarchief2ld.ttl" connector-ref="toTurtle" responseTimeout="10000" doc:name="Write to hetarchief2ld.ttl"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+    </flow>
+</mule>

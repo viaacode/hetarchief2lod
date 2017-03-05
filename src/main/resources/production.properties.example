@@ -1,0 +1,11 @@
+db.mediahaven.host=
+db.mediahaven.port=
+db.mediahaven.username=
+db.mediahaven.password=
+db.mediahaven.database=
+
+mediahaven_api.host_intern=
+mediahaven_api.username=
+mediahaven_api.password=
+keystore.alias=
+keystore.password=
