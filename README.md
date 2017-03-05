@@ -29,6 +29,6 @@ The RDF triples contain the same data as the CSV, including tags of [DBpedia Spo
 
 ## Linked Data Fragments
 
-The RDF representation is also available through a Triple Pattern Fragments [interface](http://linkeddatafragments.org). You can check this server on [http://linkeddatafragments-qas.viaa.be](http://linkeddatafragments-qas.viaa.be). Note that this is still in beta.
+The RDF representation is also available through a Triple Pattern Fragments [interface](http://linkeddatafragments.org). The interface is available at [http://linkeddatafragments-qas.viaa.be/hetarchief](http://linkeddatafragments-qas.viaa.be/hetarchief). Note that this is still in beta.
 
 With this technology, federated queries are possible. Click [here](http://client.linkeddatafragments.org/#datasources=http%3A%2F%2Ffragments.dbpedia.org%2F2016-04%2Fen;http%3A%2F%2Flinkeddatafragments-qas.viaa.be%2Fhetarchief&query=SELECT%20%3Fnewspaper%20%3Fartist%20%20%3Ftag%20%3Fhetarchief%0AWHERE%20%7B%0A%3Fartist%20dc%3Asubject%20%3Chttp%3A%2F%2Fdbpedia.org%2Fresource%2FCategory%3ABelgian_war_artists%3E%20.%0A%3Fartist%20owl%3AsameAs%20%3Ftag%20.%0A%3Fnewspaper%20%3Chttp%3A%2F%2Fwww.bbc.co.uk%2Fontologies%2Fcreativework%23tag%3E%20%3Ftag%20.%0A%3Fnewspaper%20%3Chttp%3A%2F%2Fwww.w3.org%2F2000%2F01%2Frdf-schema%23seeAlso%3E%20%3Fhetarchief%0A%7D) for an example.
