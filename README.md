@@ -4,7 +4,7 @@ Script that builds a CSV and RDF dataset of the metadata from [hetarchief.be](ht
 
 You can download the metadata from the data folder and is freely available under CC0.
 
-OCR (Optical Character Recognition) and the images are available under a disclaimer. These are only available on the website. (but will be available as raw data in the future).
+OCR (Optical Character Recognition) and the images are available under a [disclaimer](https://github.com/viaacode/hetarchief2lod/blob/master/DISCLAIMER.md). These are only available on the website. (but will be available as raw data in the future).
 
 ## Dataset CSV
 
