@@ -1,0 +1,11 @@
+# DISCLAIMER
+## Rechtenstatus
+VIAA wil met Nieuws van de Groote Oorlog, door middel van digitalisering, uniek bronnenmateriaal uit WOI conserveren, toegankelijk maken en verspreiden. Hiervoor werkt VIAA samen met collectiebeherende instellingen.  
+De collectiebeherende instellingen hebben redelijke inspanningen geleverd om rechthebbenden van de gereproduceerde documenten en artikels op Nieuws van de Groote Oorlog te achterhalen. VIAA en de collectiebeherende instellingen kunnen evenwel niet garanderen dat het bronnenmateriaal op Nieuws van de Groote Oorlog daadwerkelijk vrij is van auteursrechten. 
+Voor zover personen auteursrechtelijke aanspraken menen te hebben op de gereproduceerde documenten en artikels op Nieuws van de Groote Oorlog, kunnen zij contact opnemen met VIAA door te mailen naar support@viaa.be.
+## Hergebruik
+Downloaden en verder gebruik van alle materiaal van Nieuws van de Groote Oorlog is toegestaan ten behoeve van persoonlijke, niet-commerciële doeleinden (dus zonder verdere distributie), of in het kader van wetenschappelijk en/of heemkundig onderzoek of formeel onderwijs. De metadata wordt vrijgegeven onder een CC0-licentie. Weliswaar geldt de CC0-licentie niet voor de OCR-tekst. De metadata (m.u.v. de OCR-tekst) mag daardoor door iedereen voor alle doeleinden gebruikt worden, en naamsvermelding is daarbij geen verplichting. 
+Indien de gebruiker de gereproduceerde documenten en artikels zelf voor andere dan persoonlijke, (niet-)commerciële doeleinden wil gebruiken, moet hij nagaan of dat door bv. het mogelijke bestaan van auteursrechthebbenden wel kan. 
+De gebruiker wordt verzocht om bij het kopiëren, bewerken, distribueren, vertonen en opvoeren, als blijk van waardering voor hun werk, de namen van VIAA en de betrokken collectiebeherende instelling(en) te vermelden, zoals dat op Nieuws van de Groote Oorlog gebeurt bij de gereproduceerde documenten en artikels. Ook wordt de gebruiker verzocht om.bij het distribueren de zogenaamde derde partijen te wijzen op de onduidelijke rechtenstatus van het materiaal. 
+De gebruiker van Nieuws van de Groote Oorlog, is steeds als enige verantwoordlijk voor het gebruik dat hij maakt van het materiaal en zal VIAA en de betrokken collectiebeherende instellingen vrijwaren van alle aanspraken van derden gebaseerd op dat gebruik. 
+
